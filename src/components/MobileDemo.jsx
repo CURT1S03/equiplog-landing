@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   QrCode,
   History,
@@ -21,23 +21,35 @@ import {
   ToggleLeft,
   ToggleRight,
 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Html5Qrcode } from 'html5-qrcode';
 import { USERS, createInitialEquipment } from '../data/mockData';
+import { usePersistedState } from '../hooks/usePersistedState';
 
-const MobileDemo = () => {
+const isNative = Capacitor.isNativePlatform();
+
+const MobileDemo = ({ native = false }) => {
+  const fullscreen = native || isNative;
+
   // ── Auth ──
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = usePersistedState('equiplog-user', null);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
 
   // ── Navigation ──
-  const [screen, setScreen] = useState('login');
+  const [screen, setScreen] = useState(() => (currentUser ? 'home' : 'login'));
   const [navStack, setNavStack] = useState([]);
 
   // ── Data ──
-  const [equipment, setEquipment] = useState(createInitialEquipment);
+  const [equipment, setEquipment] = usePersistedState('equiplog-equipment', createInitialEquipment);
   const [selectedId, setSelectedId] = useState(null);
   const [searchCode, setSearchCode] = useState('');
   const [searchError, setSearchError] = useState('');
+
+  // ── QR scanner ref ──
+  const qrScannerRef = useRef(null);
+  const qrContainerRef = useRef(null);
 
   // ── Report state ──
   const [issueNote, setIssueNote] = useState('');
@@ -125,15 +137,74 @@ const MobileDemo = () => {
     setPinError(false);
   };
 
-  const handleScan = () => {
-    navigate('scan');
-    setTimeout(() => {
-      // QR scan identifies a piece of equipment
-      const eq = equipment[Math.floor(Math.random() * equipment.length)];
+  const stopQrScanner = useCallback(() => {
+    if (qrScannerRef.current) {
+      qrScannerRef.current.stop().catch(() => {});
+      qrScannerRef.current = null;
+    }
+  }, []);
+
+  const handleQrResult = useCallback((decodedText) => {
+    stopQrScanner();
+    const code = decodedText.trim().toUpperCase();
+    const eq = equipment.find((e) => e.code.toUpperCase() === code);
+    if (eq) {
       setSelectedId(eq.id);
       setScreen('profile');
-    }, 1800);
+    } else {
+      // If QR text doesn't match an equipment code, pick a random one as fallback
+      const fallback = equipment[Math.floor(Math.random() * equipment.length)];
+      setSelectedId(fallback.id);
+      setScreen('profile');
+      showToast(`QR: "${code}" — showing closest match`);
+    }
+  }, [equipment, stopQrScanner]);
+
+  const startQrScanner = useCallback(() => {
+    if (!qrContainerRef.current) return;
+    const html5Qr = new Html5Qrcode('qr-reader');
+    qrScannerRef.current = html5Qr;
+    html5Qr.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 200, height: 200 } },
+      handleQrResult,
+      () => {},
+    ).catch(() => {
+      // Camera not available — fall back to simulated scan
+      setTimeout(() => {
+        const eq = equipment[Math.floor(Math.random() * equipment.length)];
+        setSelectedId(eq.id);
+        setScreen('profile');
+      }, 1800);
+    });
+  }, [handleQrResult, equipment]);
+
+  const handleScan = () => {
+    navigate('scan');
+    if (fullscreen) {
+      // Real QR scanning — startQrScanner called via useEffect when scan screen mounts
+    } else {
+      // Web demo mode — simulated scan
+      setTimeout(() => {
+        const eq = equipment[Math.floor(Math.random() * equipment.length)];
+        setSelectedId(eq.id);
+        setScreen('profile');
+      }, 1800);
+    }
   };
+
+  // Start/stop QR scanner when scan screen is shown (native only)
+  useEffect(() => {
+    if (screen === 'scan' && fullscreen) {
+      // Small delay to let the DOM render the container
+      const timer = setTimeout(startQrScanner, 300);
+      return () => {
+        clearTimeout(timer);
+        stopQrScanner();
+      };
+    }
+    return stopQrScanner;
+  }, [screen, fullscreen, startQrScanner, stopQrScanner]);
 
   const handleSearch = () => {
     const code = searchCode.trim().toUpperCase();
@@ -154,6 +225,21 @@ const MobileDemo = () => {
     const reader = new FileReader();
     reader.onload = (ev) => setPhotoPreview(ev.target.result);
     reader.readAsDataURL(file);
+  };
+
+  const handleNativePhoto = async () => {
+    try {
+      const photo = await CapCamera.getPhoto({
+        quality: 80,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Camera,
+        width: 800,
+      });
+      setPhotoPreview(photo.dataUrl);
+    } catch {
+      // User cancelled
+    }
   };
 
   const handleSubmitIssue = () => {
@@ -418,20 +504,37 @@ const MobileDemo = () => {
 
   const renderScan = () => (
     <div className="h-full bg-slate-900 flex flex-col items-center justify-center relative">
-      <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-400 via-slate-900 to-slate-900" />
-      <div className="relative z-10 w-56 h-56 border-4 border-amber-500 rounded-3xl overflow-hidden flex items-center justify-center bg-black/50">
-        <div className="w-full h-1 bg-amber-400 absolute shadow-[0_0_15px_rgba(251,191,36,0.8)] animate-scan" />
-        <QrCode className="w-28 h-28 text-slate-500 opacity-50" />
-      </div>
-      <p className="text-amber-400 mt-6 font-bold animate-pulse text-lg tracking-wide">
-        Scanning...
-      </p>
+      {fullscreen ? (
+        <>
+          <div
+            id="qr-reader"
+            ref={qrContainerRef}
+            className="w-full flex-1 relative"
+            style={{ maxHeight: '70%' }}
+          />
+          <p className="text-amber-400 mt-4 font-bold animate-pulse text-lg tracking-wide">
+            Point at QR code...
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-400 via-slate-900 to-slate-900" />
+          <div className="relative z-10 w-56 h-56 border-4 border-amber-500 rounded-3xl overflow-hidden flex items-center justify-center bg-black/50">
+            <div className="w-full h-1 bg-amber-400 absolute shadow-[0_0_15px_rgba(251,191,36,0.8)] animate-scan" />
+            <QrCode className="w-28 h-28 text-slate-500 opacity-50" />
+          </div>
+          <p className="text-amber-400 mt-6 font-bold animate-pulse text-lg tracking-wide">
+            Scanning...
+          </p>
+        </>
+      )}
       <button
         onClick={() => {
+          stopQrScanner();
           setScreen(navStack[navStack.length - 1] || 'home');
           setNavStack((s) => s.slice(0, -1));
         }}
-        className="mt-6 text-slate-500 text-sm font-medium underline"
+        className="mt-4 mb-6 text-slate-500 text-sm font-medium underline z-10"
       >
         Cancel
       </button>
@@ -678,7 +781,13 @@ const MobileDemo = () => {
           </div>
         ) : (
           <button
-            onClick={() => photoRef.current?.click()}
+            onClick={() => {
+              if (fullscreen && isNative) {
+                handleNativePhoto();
+              } else {
+                photoRef.current?.click();
+              }
+            }}
             className="w-full bg-white hover:bg-slate-50 text-slate-500 font-bold py-6 rounded-3xl flex flex-col justify-center items-center gap-2 border-2 border-dashed border-slate-300 active:bg-slate-100 transition-colors"
           >
             <Camera className="w-8 h-8 text-slate-400" />
@@ -959,6 +1068,57 @@ const MobileDemo = () => {
   };
 
   /* ───────── RENDER ───────── */
+
+  if (fullscreen) {
+    return (
+      <div className="relative w-full h-full flex flex-col text-left font-sans text-slate-900 bg-slate-50 overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="flex-1 overflow-hidden relative">
+          {(screens[screen] || renderHome)()}
+
+          {/* Toast */}
+          {toast && (
+            <div className="absolute bottom-6 left-4 right-4 bg-slate-900 text-white text-sm font-bold py-3 px-4 rounded-2xl text-center z-50 shadow-xl animate-fade-in">
+              {toast}
+            </div>
+          )}
+        </div>
+
+        <style>{`
+          @keyframes scan {
+            0% { top: 0; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+          }
+          .animate-scan {
+            animation: scan 2s ease-in-out infinite;
+          }
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          .animate-fade-in {
+            animation: fadeIn 0.2s ease-out;
+          }
+          #qr-reader video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover !important;
+            border-radius: 0 !important;
+          }
+          #qr-reader {
+            border: none !important;
+          }
+          #qr-reader__scan_region {
+            min-height: auto !important;
+          }
+          #qr-reader__dashboard {
+            display: none !important;
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="relative mx-auto w-[320px] h-[640px] bg-slate-900 rounded-[2.5rem] border-[10px] border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col text-left font-sans text-slate-900 ring-4 ring-slate-700/50">

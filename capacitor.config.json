@@ -1,0 +1,13 @@
+{
+  "appId": "com.equiplog.app",
+  "appName": "EquipLog",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always"
+  },
+  "plugins": {
+    "Camera": {
+      "permissions": ["camera", "photos"]
+    }
+  }
+}
