@@ -13,6 +13,8 @@ import {
   Activity,
 } from 'lucide-react';
 import MobileDemo from './components/MobileDemo';
+import ProductChatbot from './components/ProductChatbot';
+import AppScreenshots from './components/AppScreenshots';
 
 export default function App() {
   const [email, setEmail] = useState('');
@@ -118,8 +120,8 @@ export default function App() {
                 EquipLog provides instant, real-time visibility into an equipment's repair history and an automated digital chain of custody. It empowers small teams to reduce downtime and prevent safety incidents without the enterprise price tag.
               </p>
             </div>
-            <div className="flex-1 w-full bg-slate-200 rounded-xl h-64 flex items-center justify-center border border-slate-300">
-                <span className="text-slate-500 font-medium">Simple, high-contrast UI Mockup</span>
+            <div className="flex-1 w-full">
+              <AppScreenshots />
             </div>
           </div>
 
@@ -193,6 +195,19 @@ export default function App() {
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Product Assistant Chatbot */}
+      <section className="py-20 px-6 md:px-12 bg-slate-100">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Have questions? Ask our product assistant.</h2>
+            <p className="text-lg text-slate-600">
+              Learn about features, user stories, workflows, and success metrics — all in one place.
+            </p>
+          </div>
+          <ProductChatbot />
         </div>
       </section>
 

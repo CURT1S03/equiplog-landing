@@ -233,12 +233,16 @@ const MobileDemo = ({ native = false }) => {
         quality: 80,
         allowEditing: false,
         resultType: CameraResultType.DataUrl,
-        source: CameraSource.Camera,
+        source: CameraSource.Prompt,
         width: 800,
+        promptLabelHeader: 'Add Photo',
+        promptLabelPhoto: 'Choose from Library',
+        promptLabelPicture: 'Take Photo',
       });
       setPhotoPreview(photo.dataUrl);
     } catch {
-      // User cancelled
+      // Native camera failed or user cancelled — fall back to file input
+      photoRef.current?.click();
     }
   };
 
