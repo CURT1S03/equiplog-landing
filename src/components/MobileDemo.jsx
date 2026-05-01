@@ -20,7 +20,11 @@ import {
   Image,
   ToggleLeft,
   ToggleRight,
+  Sparkles,
+  Calendar,
 } from 'lucide-react';
+import { getAlerts } from '../utils/predictiveMaintenance';
+import { exportAuditReport } from '../utils/generateReport';
 import { Capacitor } from '@capacitor/core';
 import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -42,7 +46,7 @@ const MobileDemo = ({ native = false }) => {
   const [navStack, setNavStack] = useState([]);
 
   // ── Data ──
-  const [equipment, setEquipment] = usePersistedState('equiplog-equipment', createInitialEquipment);
+  const [equipment, setEquipment] = usePersistedState('equiplog-equipment-v3', createInitialEquipment);
   const [selectedId, setSelectedId] = useState(null);
   const [searchCode, setSearchCode] = useState('');
   const [searchError, setSearchError] = useState('');
@@ -550,6 +554,7 @@ const MobileDemo = ({ native = false }) => {
     const isDown = selected.status !== 'Operational';
     const recentLogs = selected.logs.slice(0, 3);
     const openIssues = selected.logs.filter((l) => l.type === 'issue' && l.status === 'open');
+    const aiAlerts = getAlerts(selected);
 
     return (
       <div className="flex flex-col h-full bg-slate-50">
@@ -617,6 +622,53 @@ const MobileDemo = ({ native = false }) => {
               </div>
             </div>
           </div>
+
+          {/* AI Insights */}
+          {aiAlerts.length > 0 && (
+            <div className="bg-violet-50 border border-violet-200 rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="w-4 h-4 text-violet-600" />
+                <span className="text-violet-700 text-xs font-bold uppercase tracking-wider">
+                  AI Insights
+                </span>
+                <span className="ml-auto bg-violet-100 text-violet-500 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+                  {aiAlerts.length} alert{aiAlerts.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {aiAlerts.map((alert, i) => {
+                  const isCritical = alert.level === 'critical';
+                  const isWarning  = alert.level === 'warning';
+                  const borderColor = isCritical ? '#fca5a5' : isWarning ? '#fde68a' : '#ddd6fe';
+                  const iconEl = isCritical
+                    ? <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    : isWarning
+                      ? <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                      : alert.rule === 'next-service'
+                        ? <Calendar className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" />
+                        : <Clock className="w-4 h-4 text-violet-400 flex-shrink-0 mt-0.5" />;
+                  return (
+                    <div
+                      key={i}
+                      className="bg-white rounded-xl p-3 flex gap-3 items-start border"
+                      style={{ borderColor }}
+                    >
+                      {iconEl}
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-800 mb-0.5">{alert.title}</p>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">{alert.message}</p>
+                        {alert.action && (
+                          <p className="text-[11px] text-violet-600 font-semibold mt-1.5 leading-relaxed">
+                            → {alert.action}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Open Issues Alert */}
           {openIssues.length > 0 && (
@@ -945,7 +997,10 @@ const MobileDemo = ({ native = false }) => {
         {canAudit && (
           <div className="px-4 pt-4">
             <button
-              onClick={() => showToast('PDF report exported!')}
+              onClick={() => {
+                exportAuditReport(equipment);
+                showToast('Report downloaded!');
+              }}
               className="w-full bg-slate-800 text-white font-bold py-3 rounded-2xl flex items-center justify-center gap-2 active:bg-slate-700 text-sm"
             >
               <Download className="w-4 h-4" /> Export Time-Stamped Report
